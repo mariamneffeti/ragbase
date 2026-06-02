@@ -1,6 +1,5 @@
 # Architecture Decision Record
-
-> Multi-Tenant AI SaaS Platform · Free-tier portfolio build
+**Multi-Tenant AI SaaS Platform · Free-tier portfolio build**
 
 This document explains every architectural decision in this project — why each tool was chosen, what the free-tier constraints are, and what the production alternative looks like when it's time to scale.
 
@@ -23,13 +22,14 @@ This document explains every architectural decision in this project — why each
 
 **Layer:** Frontend · Deployed on Vercel (free tier)
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
 | **Service** | Next.js on Vercel hobby plan | Vercel Pro (~$20/mo) or AWS Amplify |
 | **Limits** | 100GB bandwidth, 6,000 build minutes/mo | Unlimited builds, team collaboration, SLA |
-| **When to upgrade** | When you need team access, >100GB bandwidth, or 99.99% SLA |
+| **When to upgrade** | When you need team access, >100GB bandwidth, or 99.99% SLA | |
 
-**Why this choice:**
+### Why this choice
+
 Next.js combines React with server-side rendering, API routes, and file-based routing in one framework. Vercel — built by the Next.js team — offers zero-config deployment with a global CDN, preview URLs for every branch, and automatic HTTPS. The free tier is generous enough to run a portfolio project indefinitely.
 
 **Key reasons:**
@@ -45,21 +45,22 @@ Next.js combines React with server-side rendering, API routes, and file-based ro
 
 **Layer:** Backend API · Deployed on Render (free tier)
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
 | **Service** | FastAPI on Render free tier | Render Starter ($7/mo), Railway ($5/mo), AWS ECS |
 | **Limits** | Spins down after 15 min idle (~30s cold start) | Always-on, auto-scaling, multi-region |
-| **When to upgrade** | The moment you need the service always-on for real users |
+| **When to upgrade** | The moment you need the service always-on for real users | |
 
-**Why this choice:**
-FastAPI is the fastest Python web framework, with automatic OpenAPI docs, native async support, and Pydantic type hints that double as request validation. Python is the language of the AI/ML ecosystem — LangChain, sentence-transformers, and every major AI SDK are Python-first. Render's free tier is enough for demos and interviews.
+### Why this choice
+
+FastAPI is the fastest Python web framework, featuring native async support, automated OpenAPI documentation generation, and structural data validation via Pydantic. Python serves as the foundational language for the AI/ML ecosystem, supporting all major AI SDKs and pipeline utilities natively.
 
 **Key reasons:**
-- Automatic `/docs` Swagger UI endpoint — zero extra work
-- Native `async/await`: stream LLM responses without blocking other requests
-- Pydantic validates request and response shapes at the boundary
-- Seamless integration with every Python AI/ML library
-- `BackgroundTasks` handles async PDF processing without adding Celery
+- Automatic `/docs` Swagger UI endpoint for immediate API specification interaction
+- Native async/await handling to stream tokenized LLM responses efficiently without blocking concurrent operations
+- Formally validates inbound payloads at the application boundaries using Pydantic type hints
+- Integrates an internal dependency injection pipeline to cryptographically decode client-forwarded access tokens via Supabase JWKS endpoints
+- Leverages `slowapi` connected to an external Redis instance to enforce a per-user endpoint quota (e.g., 5 requests/minute for AI chat routes)
 
 ---
 
@@ -67,21 +68,22 @@ FastAPI is the fastest Python web framework, with automatic OpenAPI docs, native
 
 **Layer:** Data · Free tier (replaces three separate services)
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
 | **Service** | Supabase free tier | Supabase Pro ($25/mo) or Auth0 + AWS RDS + S3 |
 | **Limits** | 500MB DB, 1GB storage, pauses after 1 week inactive, 50,000 MAUs | Always-on, daily backups, no pause |
-| **When to upgrade** | When the project needs to be always-on or exceeds 500MB of data |
+| **When to upgrade** | When the project needs to be always-on or exceeds 500MB of data | |
 
-**Why this choice:**
-Supabase consolidates three services into one: PostgreSQL database, JWT-based auth (with social providers, magic links, and MFA), and S3-compatible file storage. This dramatically reduces complexity for a portfolio project. Row Level Security (RLS) enforces multi-tenancy at the database layer, not the application layer — a significant security advantage.
+### Why this choice
+
+Supabase consolidates a PostgreSQL database, a JSON Web Token (JWT) identity provider, and S3-compatible object storage into a single infrastructure footprint. Row Level Security (RLS) policies decouple data ownership, ensuring multi-tenancy rules are consistently evaluated directly within the storage engine.
 
 **Key reasons:**
-- PostgreSQL is the world's most advanced open-source relational DB — no vendor lock-in
-- RLS policies mean even a buggy application layer can't leak another user's data
-- Auth handles JWT issuance, refresh tokens, and social OAuth out of the box
-- Storage integrates with the same auth system — file access respects the same RLS policies
-- JavaScript and Python SDKs are first-class and well maintained
+- PostgreSQL structure provides core relational capabilities with zero proprietary vendor lock-in
+- RLS rules restrict direct records visibility based on authenticated claims embedded within the token
+- The client UI exchanges login credentials directly with GoTrue endpoints, acquiring stateless access tokens forwarded upstream to the FastAPI layer
+- Storage engine access paths are verified using the exact same database-integrated RLS policies
+- Maintains native, highly optimized SDK libraries across both JavaScript and Python environments
 
 > **Note on splitting at scale:** At production scale, consider splitting into Auth0 (auth), AWS RDS (database), and S3 (storage) for better individual SLAs and more fine-grained control.
 
@@ -91,21 +93,23 @@ Supabase consolidates three services into one: PostgreSQL database, JWT-based au
 
 **Layer:** AI Data · Free tier
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
 | **Service** | Pinecone free tier | Pinecone Serverless (~$0.10/1M reads) or Weaviate Cloud |
 | **Limits** | 1 index, 100K vectors, 1536 dimensions | Unlimited indexes, vectors, and namespaces |
-| **When to upgrade** | When you exceed ~200-300 chunked PDFs, or need multiple indexes |
+| **When to upgrade** | When you exceed ~200–300 chunked PDFs, or need multiple indexes | |
 
-**Why this choice:**
-A vector database stores document chunks as numerical embeddings and retrieves them by semantic similarity — the core of any RAG pipeline. Pinecone is the most popular managed vector DB, with a well-documented API, Python SDK, and namespaces that allow per-user document isolation.
+### Why this choice
+
+A vector database stores chunked document matrices as high-dimensional semantic vectors to execute similarity searches. Pinecone provides a fully managed infrastructure that scales sub-second nearest-neighbor matching alongside structured metadata filtering parameters.
 
 **Key reasons:**
-- Approximate nearest neighbor (ANN) search returns results in milliseconds at any scale
-- Namespaces provide multi-tenant isolation — each user's documents in their own namespace
-- Metadata filtering scopes retrieval to a specific user or document
-- Serverless pricing means you pay only for what you query — no idle cost
-- **Free alternative:** `pgvector` extension on Supabase keeps everything in one DB at the cost of some query performance at scale
+- Approximate Nearest Neighbor (ANN) indexes return query sets within millisecond tolerances
+- Programmatic document namespaces explicitly separate indexing groups on a per-tenant basis
+- Implements a dedicated vector service wrapper layer that programmatically validates the target namespace against the authenticated tenant ID before executing operations
+- Serverless indexing maps resource billing strictly to query activity rather than idle uptime
+
+> **Free alternative:** The `pgvector` extension inside Supabase offers single-database consolidation when deployment consolidation is prioritized over standalone vector search performance.
 
 ---
 
@@ -113,23 +117,24 @@ A vector database stores document chunks as numerical embeddings and retrieves t
 
 **Layer:** AI · Completely free tier
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
 | **Service** | Groq Cloud free tier | Groq paid, Claude API, or OpenAI API |
 | **Limits** | 30 requests/min, 6,000 requests/day, 500K tokens/day | Higher rate limits, SLA, priority access |
-| **When to upgrade** | When you exceed 6,000 requests/day or need a specific model like Claude Opus |
+| **When to upgrade** | When you exceed 6,000 requests/day or need a specific model like Claude Opus | |
 
-**Why this choice:**
-Groq offers a genuinely free API with no credit card required — not a trial, not a $5 credit. It runs open-source models (Llama 3, Mixtral, Gemma) at extremely fast inference speeds, often faster than OpenAI. The API is OpenAI-compatible, meaning migration requires changing roughly 3 lines of code. For a portfolio project, 6,000 requests/day is more than enough.
+### Why this choice
+
+Groq provides a robust free tier with access to open-weights architectures (Llama, Mixtral) running on specialized LPU (Language Processing Unit) hardware. The interface exposed by the SDK matches standard inference protocol conventions, reducing systemic engine-switching overhead.
 
 **Key reasons:**
-- Completely free — $0/mo, no billing setup required
-- OpenAI-compatible SDK: swap the base URL and model name, nothing else changes
-- Llama 3.1 70B is competitive with GPT-4o-mini for document Q&A tasks
-- Extremely fast inference (Groq's custom LPU hardware) — better UX than many paid APIs
-- Get your free API key at [console.groq.com](https://console.groq.com)
+- Fully accessible inference pricing with zero upfront usage requirements
+- Interface schema compliance allowing models to be updated or swapped with minimal backend configuration alterations
+- High token-per-second processing velocity suited for responsive document context analysis
+- Built-in tool calling support enables straightforward systemic grounding within text generation pipelines
 
 **Migration from Claude/OpenAI is 3 lines:**
+
 ```python
 # Before (OpenAI)
 from openai import OpenAI
@@ -149,21 +154,22 @@ client = Groq(api_key="gsk_...")  # free at console.groq.com
 
 **Layer:** Processing · Free tier
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
-| **Service** | FastAPI `BackgroundTasks` + Upstash Redis | Celery + Redis on AWS ElastiCache, or AWS SQS |
+| **Service** | FastAPI BackgroundTasks + Upstash Redis | Celery + Redis on AWS ElastiCache, or AWS SQS |
 | **Limits** | No retry logic, no job dashboard, shares memory with web server | Retries, visibility, horizontal scaling |
-| **When to upgrade** | When you need retries on failure, a queue dashboard, or separate worker scaling |
+| **When to upgrade** | When you need retries on failure, a queue dashboard, or separate worker scaling | |
 
-**Why this choice:**
-PDF processing — reading, chunking, embedding, storing — is too slow for a synchronous HTTP request. FastAPI's `BackgroundTasks` runs jobs after returning a response, with no extra service to deploy. Upstash provides serverless Redis for tracking job state with a generous free tier.
+### Why this choice
+
+Document text extraction, recursive chunk generation, and embedding calculations are executed asynchronously outside the standard request-response loop. FastAPI's worker-integrated thread runner processes multi-stage ingestion flows non-blockingly, while a cloud Redis instance acts as the centralized transaction state store.
 
 **Key reasons:**
-- Returns `202 Accepted` immediately; client polls for status
-- Job state (pending / processing / done / failed) stored in Supabase
-- Upstash Redis persists state between requests, unlike in-memory tracking
-- No Celery, no separate worker Dockerfile, no extra service to configure
-- The Celery upgrade path is well documented when complexity demands it
+- Endpoints emit instantaneous `202 Accepted` acknowledgments, offloading heavy processing tasks
+- Tracks multi-state pipelines (e.g., `pending`, `parsing`, `embedded`, `failed`) via database mappings
+- Integrates binary magic-byte content validation and a 5MB size restriction gate prior to document ingestion
+- Uses serverless Upstash Redis instances to preserve system state values independent of local container memory configurations
+- Employs an asynchronous state pipeline where a lazy reconciliation mechanism executes upon dashboard load to sync and recover interrupted ingestion operations
 
 ---
 
@@ -171,21 +177,21 @@ PDF processing — reading, chunking, embedding, storing — is too slow for a s
 
 **Layer:** Infrastructure · Free tier
 
-| | Free tier | Production alternative |
+| | Free Tier | Production Alternative |
 |---|---|---|
 | **Frontend** | Vercel hobby (free forever) | Vercel Pro ($20/mo) or AWS CloudFront + S3 |
 | **Backend** | Render free tier | Render Starter ($7/mo), AWS ECS, or GCP Cloud Run |
-| **When to upgrade** | When cold starts are unacceptable, or you need auto-scaling and multi-region |
+| **When to upgrade** | When cold starts are unacceptable, or you need auto-scaling and multi-region | |
 
-**Why this choice:**
-Docker containers ensure the backend runs identically locally and in production. Vercel handles frontend CDN and HTTPS with zero configuration. Render builds your Dockerfile directly and runs it — the free tier's only downside is a ~30 second cold start after 15 minutes of inactivity, which is acceptable for demos and interviews.
+### Why this choice
+
+Containerizing the backend code creates predictable runtime footprints across local deployment systems and live staging hosts. Vercel acts as the automated CDN border layer for static delivery, while Render reads container configuration patterns directly to host the web app engine.
 
 **Key reasons:**
-- `docker-compose.yml` runs the full stack locally with one command
-- Dockerfile ensures reproducible builds — eliminates environment mismatch issues
-- Render reads Dockerfiles directly — no platform-specific configuration
-- Environment variables managed through Render and Vercel dashboards, never in code
-- GitHub Actions auto-deploys on push to `main` — free CI/CD for portfolio projects
+- Unified `docker-compose.yml` multi-container setups spin up consistent local development versions instantly
+- Custom backend Dockerfiles implement dedicated non-root Linux user profiles (`USER appuser`) to isolate host system permissions
+- Automated Git-integrated triggers streamline continuous integration paths from standard branch structures
+- Environment strings are bound at the runtime container configuration panel layer rather than being hardcoded into repository check-ins
 
 ---
 
@@ -202,5 +208,3 @@ Docker containers ensure the backend runs identically locally and in production.
 | **Total** | **$0/mo** | **~$70–90/mo** |
 
 > All free tiers are subject to each provider's terms and may change. Verify current limits before relying on them for production workloads.
-
----
