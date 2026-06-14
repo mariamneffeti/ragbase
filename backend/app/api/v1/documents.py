@@ -162,72 +162,6 @@ async def ingest_raw_text(
         ) from exc
 
     return IngestResponse(document_id=document_id, chunks_processed=len(vectors_to_upsert))
-
-@router.delete("/{document_id}")
-async def delete_document(
-    document_id: uuid.UUID,
-    request: Request, 
-    tenant_id: str = Depends(require_tenant_id),
-) -> Response:
-    rate_limiter = request.app.state.rate_limiter  
-    try:
-        await rate_limiter.check_rate_limit(tenant_id, "documents:delete", 30, 60)
-    except RateLimiterError as exc:  
-        logger.error("Rate limiter failure: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service temporarily unavailable.",
-        )          
-    try:
-        vector_store = VectorStoreService(tenant_id=tenant_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    try:
-        chunk_ids = await asyncio.to_thread(
-            vector_store.fetch_ids_by_document, str(document_id)
-        )
-    except VectorStoreError as exc:
-        logger.error(
-            "Failed to look up chunk IDs for document '%s', tenant '%s'",
-            document_id,
-            tenant_id,
-            exc_info=True,  
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to resolve document chunks for deletion.",
-        ) from exc
-    if not chunk_ids:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No document found with ID '{document_id}'.",
-        )
-    try:
-        await asyncio.to_thread(vector_store.delete_documents, chunk_ids)
-    except VectorStoreError as exc:
-        logger.error(
-            "Deletion failed for document '%s', tenant '%s'",
-            document_id,
-            tenant_id,
-            exc_info=True,  
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete document from the knowledge base.",
-        ) from exc
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-@router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=None)
-async def upload_document(
-    file: UploadFile,
-    request: Request,
-    tenant_id: str = Depends(require_tenant_id),
-):
-    vector_store = VectorStoreService(tenant_id=tenant_id)
-    ingestion = DocumentIngestionService(vector_store=vector_store)
-    result = await ingestion.ingest_file(file, document_id=str(uuid.uuid4()))
-    return result
 @router.get("/list", response_model=list[DocumentSummary])
 async def list_documents(
     tenant_id: str = Depends(require_tenant_id),
@@ -297,3 +231,69 @@ async def list_documents(
             ) from exc
 
         return summaries
+
+@router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=None)
+async def upload_document(
+    file: UploadFile,
+    request: Request,
+    tenant_id: str = Depends(require_tenant_id),
+):
+    vector_store = VectorStoreService(tenant_id=tenant_id)
+    ingestion = DocumentIngestionService(vector_store=vector_store)
+    result = await ingestion.ingest_file(file, document_id=str(uuid.uuid4()))
+    return result
+
+@router.delete("/{document_id}")
+async def delete_document(
+    document_id: uuid.UUID,
+    request: Request, 
+    tenant_id: str = Depends(require_tenant_id),
+) -> Response:
+    rate_limiter = request.app.state.rate_limiter  
+    try:
+        await rate_limiter.check_rate_limit(tenant_id, "documents:delete", 30, 60)
+    except RateLimiterError as exc:  
+        logger.error("Rate limiter failure: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable.",
+        )          
+    try:
+        vector_store = VectorStoreService(tenant_id=tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        chunk_ids = await asyncio.to_thread(
+            vector_store.fetch_ids_by_document, str(document_id)
+        )
+    except VectorStoreError as exc:
+        logger.error(
+            "Failed to look up chunk IDs for document '%s', tenant '%s'",
+            document_id,
+            tenant_id,
+            exc_info=True,  
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resolve document chunks for deletion.",
+        ) from exc
+    if not chunk_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No document found with ID '{document_id}'.",
+        )
+    try:
+        await asyncio.to_thread(vector_store.delete_documents, chunk_ids)
+    except VectorStoreError as exc:
+        logger.error(
+            "Deletion failed for document '%s', tenant '%s'",
+            document_id,
+            tenant_id,
+            exc_info=True,  
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete document from the knowledge base.",
+        ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
