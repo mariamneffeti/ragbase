@@ -1,6 +1,6 @@
 # AI SaaS Platform
 
-## live link : ragbase-2rlwe8dyg-mariamneffetis-projects.vercel.app
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit-green)](https://ragbase-2rlwe8dyg-mariamneffetis-projects.vercel.app)
 
 A production-ready, multi-tenant AI chat application with Retrieval-Augmented Generation (RAG) capabilities. Upload documents, ask questions, and get AI-powered answers grounded in your uploaded files.
 
