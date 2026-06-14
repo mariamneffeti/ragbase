@@ -5,7 +5,7 @@ import { useSupabase } from "@/components/providers";
 import { toast } from "sonner";
 
 export default function FileUpload({ onSuccess }: { onSuccess?: () => void }) {
-  const { user } = useSupabase();
+  const { supabase, user } = useSupabase();
   const tenantId = user?.app_metadata?.tenant_id || "default-tenant";
   const [uploading, setUploading] = useState(false);
 
@@ -17,13 +17,13 @@ export default function FileUpload({ onSuccess }: { onSuccess?: () => void }) {
       setUploading(true);
       const formData = new FormData();
       formData.append("file", file);
-
+      const { data: { session } } = await supabase.auth.getSession();
       try {
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/documents/upload`,
           {
             method: "POST",
-            headers: { "X-Tenant-ID": tenantId },
+            headers: { "X-Tenant-ID": tenantId, "Authorization": `Bearer ${session?.access_token}` },
             body: formData,
           }
         );

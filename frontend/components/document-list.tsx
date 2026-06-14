@@ -18,9 +18,10 @@ export default function DocumentList() {
 
   const fetchDocs = async () => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/documents/list`,
-        { headers: { "X-Tenant-ID": tenantId } }
+        { headers: { "X-Tenant-ID": tenantId, "Authorization": `Bearer ${session?.access_token}` } }
       );
       if (!res.ok) throw new Error("Failed to fetch documents");
       const data = await res.json();
@@ -38,11 +39,12 @@ export default function DocumentList() {
 
   const deleteDocument = async (docId: string) => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/documents/${docId}`,
         {
           method: "DELETE",
-          headers: { "X-Tenant-ID": tenantId },
+          headers: { "X-Tenant-ID": tenantId, "Authorization": `Bearer ${session?.access_token}` },
         }
       );
       if (!res.ok) throw new Error("Delete failed");

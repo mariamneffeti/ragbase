@@ -10,7 +10,7 @@ interface Message {
 }
 
 export default function ChatPage() {
-  const { user } = useSupabase();
+  const { supabase, user } = useSupabase();
   const tenantId = user?.app_metadata?.tenant_id || "default-tenant";
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -32,7 +32,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
-
+    const { data: { session } } = await supabase.auth.getSession();
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/chat/query`,
@@ -41,6 +41,7 @@ export default function ChatPage() {
           headers: {
             "Content-Type": "application/json",
             "X-Tenant-ID": tenantId,
+            "Authorization": `Bearer ${session?.access_token}`
           },
           body: JSON.stringify({ message: input }),
         }
