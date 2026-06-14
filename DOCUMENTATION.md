@@ -36,4 +36,11 @@ Render can kill your container mid-PDF-processing after 15 minutes of idle.
 
 - Solution:
 The fix is a reconciliation endpoint that Next.js calls on login: any document stuck in processing for more than 10 minutes gets marked failed, keeping Supabase and Pinecone consistent without needing a paid always-on service
----
+------------------------------------
+# File By File Documentation :
+
+- saas/backend/core/rate_limiter.py :
+
+For now i'm using sliding window log via Lua scripting because it's just a portfolio project. In production and depending on the scale i would switch to sliding window counter to improve memory usage.
+
+- saas/backend/

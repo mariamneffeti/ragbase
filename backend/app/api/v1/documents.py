@@ -4,18 +4,23 @@ import asyncio
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status,Request
+from fastapi import APIRouter, Depends, HTTPException, status,Request,UploadFile 
 from pydantic import BaseModel, Field, field_validator
-
-from app.api.dependencies.auth import get_current_user
+from fastapi.responses import Response
+from app.api.dependencies.auth import require_tenant_id
 from app.services.vector_store import VectorStoreService, VectorStoreError, Vector
-
+from app.core.rate_limiter import RateLimiterError
 logger = logging.getLogger(__name__)
-
+from app.tasks.ingestion import DocumentIngestionService, IngestionError
 router = APIRouter(prefix="/documents", tags=["Knowledge Base Ingestion"])
 
 _MAX_CONTENT_LENGTH = 200_000
 
+class DocumentSummary(BaseModel):
+    document_id: str
+    title: str
+    chunk_count: int
+    filename: str | None = None
 
 
 class IngestTextRequest(BaseModel):
@@ -37,19 +42,6 @@ class IngestResponse(BaseModel):
     status: str = "success"
     document_id: str
     chunks_processed: int
-
-
-
-def _get_tenant_id(current_user: dict) -> str:
-    tenant_id = current_user.get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing tenant ID.",
-        )
-    return tenant_id
-
-
 
 def split_into_chunks(text: str, chunk_size: int = 250, overlap: int = 50) -> list[str]:
     if overlap >= chunk_size:
@@ -74,15 +66,25 @@ def split_into_chunks(text: str, chunk_size: int = 250, overlap: int = 50) -> li
 async def ingest_raw_text(
     payload: IngestTextRequest,
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    tenant_id: str = Depends(require_tenant_id),
 ) -> IngestResponse:
-    tenant_id = _get_tenant_id(current_user)
-    rate_limiter = request.app.state.rate_limiter        
-    await rate_limiter.check_rate_limit(tenant_id, "documents:ingest", 20, 60)
+    rate_limiter = request.app.state.rate_limiter 
+    try:
+        await rate_limiter.check_rate_limit(tenant_id, "documents:ingest", 20, 60)
+    except RateLimiterError as exc:  
+        logger.error("Rate limiter failure: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable.",
+        )       
     try:
         vector_store = VectorStoreService(tenant_id=tenant_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        logger.warning("Invalid request: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request parameters.",
+        ) from exc
 
     try:
         chunks = split_into_chunks(payload.content, chunk_size=250, overlap=50)
@@ -161,15 +163,21 @@ async def ingest_raw_text(
 
     return IngestResponse(document_id=document_id, chunks_processed=len(vectors_to_upsert))
 
-@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{document_id}")
 async def delete_document(
     document_id: uuid.UUID,
     request: Request, 
-    current_user: dict = Depends(get_current_user),
-) -> None:
-    tenant_id = _get_tenant_id(current_user)
-    rate_limiter = request.app.state.rate_limiter       
-    await rate_limiter.check_rate_limit(tenant_id, "documents:delete", 30, 60)
+    tenant_id: str = Depends(require_tenant_id),
+) -> Response:
+    rate_limiter = request.app.state.rate_limiter  
+    try:
+        await rate_limiter.check_rate_limit(tenant_id, "documents:delete", 30, 60)
+    except RateLimiterError as exc:  
+        logger.error("Rate limiter failure: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable.",
+        )          
     try:
         vector_store = VectorStoreService(tenant_id=tenant_id)
     except ValueError as exc:
@@ -208,3 +216,84 @@ async def delete_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete document from the knowledge base.",
         ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=None)
+async def upload_document(
+    file: UploadFile,
+    request: Request,
+    tenant_id: str = Depends(require_tenant_id),
+):
+    vector_store = VectorStoreService(tenant_id=tenant_id)
+    ingestion = DocumentIngestionService(vector_store=vector_store)
+    result = await ingestion.ingest_file(file, document_id=str(uuid.uuid4()))
+    return result
+@router.get("/list", response_model=list[DocumentSummary])
+async def list_documents(
+    tenant_id: str = Depends(require_tenant_id),
+) -> list[DocumentSummary]:
+        try:
+            vector_store = VectorStoreService(tenant_id=tenant_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid tenant context.",
+            ) from exc
+
+        summaries: list[DocumentSummary] = []
+        try:
+            # 1. Get all distinct document IDs (streaming, memory‑safe)
+            doc_ids: list[str] = []
+            async for page in vector_store.list_document_ids_paginated(page_size=1_000):
+                doc_ids.extend(page)
+
+            # 2. For each document, fetch the first chunk's metadata (title/filename)
+            #    and count the total number of chunks.
+            #    We limit concurrency to avoid overwhelming Pinecone.
+            sem = asyncio.Semaphore(10)   # max 10 concurrent fetches
+
+            async def build_summary(doc_id: str) -> DocumentSummary:
+                async with sem:
+                    # Get all chunk IDs for this document
+                    chunk_ids = await asyncio.to_thread(
+                        vector_store.fetch_ids_by_document, doc_id
+                    )
+                    chunk_count = len(chunk_ids)
+
+                    # Get metadata from the first chunk (fallback if missing)
+                    title = doc_id   # default fallback
+                    filename = None
+                    if chunk_ids:
+                        first_chunk_id = chunk_ids[0]
+                        try:
+                            metadata = await vector_store.get_metadata_async(first_chunk_id)
+                            if metadata:
+                                title = metadata.get("title", title)
+                                filename = metadata.get("filename")
+                        except VectorStoreError:
+                            logger.warning(
+                                "Could not fetch metadata for chunk '%s', using doc_id as title.",
+                                first_chunk_id,
+                            )
+
+                    return DocumentSummary(
+                        document_id=doc_id,
+                        title=title,
+                        chunk_count=chunk_count,
+                        filename=filename,
+                    )
+
+            tasks = [build_summary(doc_id) for doc_id in doc_ids]
+            summaries = await asyncio.gather(*tasks)
+
+        except VectorStoreError as exc:
+            logger.error(
+                "Failed to list documents for tenant '%s': %s",
+                tenant_id, exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to retrieve document list from knowledge base.",
+            ) from exc
+
+        return summaries

@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+@layer base {
+  :root {
+    --bg:        #F8F8F7;
+    --surface:   #FFFFFF;
+    --surface-2: #F0EDE6;
+    --border:    #E2DDD6;
+    --text:      #1C1C1E;
+    --text-2:    #6B6860;
+    --accent:    #5C7A6B;
+    --accent-2:  #4A6357;
+    --danger:    #B85450;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: #C8D8D2;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
