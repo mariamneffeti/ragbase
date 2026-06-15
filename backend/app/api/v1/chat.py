@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.dependencies.auth import get_current_user, require_tenant_id
 from app.services.llm import LLMService, LLMServiceError
 from app.services.vector_store import VectorStoreService, VectorStoreError
-
+import hashlib
 logger = logging.getLogger(__name__)
 
 _CONTEXT_TOP_K = 5
@@ -36,6 +36,11 @@ async def query_tenant_knowledge_base(
     tenant_id = require_tenant_id(current_user)
     rate_limiter = request.app.state.rate_limiter
     await rate_limiter.check_rate_limit(tenant_id, "chat:query", 100, 60)
+    redis = request.app.state.redis
+    cache_key = f"chat:{tenant_id}:{hashlib.sha256(payload.message.encode()).hexdigest()}"
+    cached = await redis.get(cache_key)
+    if cached:
+        return ChatQueryResponse(answer=cached)
 
     try:
         vector_store = VectorStoreService(tenant_id=tenant_id)
@@ -96,5 +101,7 @@ async def query_tenant_knowledge_base(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Response generation service temporarily unavailable.",
         ) from exc
+    
+    await redis.setex(cache_key, 3600, answer) 
 
     return ChatQueryResponse(answer=answer)
