@@ -4,7 +4,8 @@ from unittest.mock import patch, MagicMock
 @pytest.fixture
 def mock_pinecone_index():
     with patch("app.services.vector_store._get_index") as mock_get_index, \
-         patch("app.services.vector_store._get_client") as mock_get_client:
+         patch("app.services.vector_store._get_client") as mock_get_client, \
+         patch("app.services.vector_store._inference_embed") as mock_embed:
 
         index = MagicMock()
         index.upsert = MagicMock()
@@ -22,6 +23,7 @@ def mock_pinecone_index():
         embed_response.data = [MagicMock(values=fake_embedding) for _ in range(100)]
         client.inference.embed = MagicMock(return_value=embed_response)
         mock_get_client.return_value = client
+        mock_embed.side_effect = lambda texts, input_type: [[0.1] * 1024 for _ in texts]
 
         yield index
 
