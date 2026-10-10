@@ -11,6 +11,7 @@ import redis.asyncio as aioredis
 
 from app.api.v1 import chat, documents
 from app.core.config import settings
+from app.core.request_limits import RequestBodyLimitMiddleware
 from app.services.llm import LLMService, LLMServiceError
 from app.utils.file_validator import FileValidationError
 from app.core.rate_limiter import (
@@ -69,6 +70,12 @@ app = FastAPI(
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
     openapi_url="/openapi.json" if settings.DEBUG else None,
+)
+
+# Allows multipart framing overhead around the default 10 MiB file limit.
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=10 * 1024 * 1024 + 64 * 1024,
 )
 
 app.add_middleware(

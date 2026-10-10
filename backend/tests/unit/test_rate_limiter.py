@@ -59,6 +59,19 @@ async def test_endpoints_are_isolated(limiter_and_mock):
 
 
 @pytest.mark.asyncio
+async def test_tenant_key_encoding_does_not_merge_colon_and_underscore(limiter_and_mock):
+    limiter, script = limiter_and_mock
+    script.return_value = (1, 1, 0)
+
+    await limiter.check_rate_limit("a:b", "/chat", max_requests=5, window_seconds=60)
+    first_key = script.await_args.kwargs["keys"][0]
+    await limiter.check_rate_limit("a_b", "/chat", max_requests=5, window_seconds=60)
+    second_key = script.await_args.kwargs["keys"][0]
+
+    assert first_key != second_key
+
+
+@pytest.mark.asyncio
 async def test_close_is_noop(limiter_and_mock):
     limiter, _ = limiter_and_mock
-    await limiter.close()  
+    await limiter.close()

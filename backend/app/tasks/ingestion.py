@@ -85,11 +85,23 @@ class DocumentIngestionService:
                 functools.partial(self._chunk_text, raw_text)
             )
 
-            await self.vector_store.upsert_document_chunks(
-                document_id=document_id,
-                chunks=chunks,
-                metadata_template={"filename": filename},
-            )
+            try:
+                await self.vector_store.upsert_document_chunks(
+                    document_id=document_id,
+                    chunks=chunks,
+                    metadata_template={"filename": filename},
+                )
+            except Exception as exc:
+                try:
+                    await self.vector_store.delete_by_document_id_async(document_id)
+                except Exception:
+                    logger.critical(
+                        "Partial vector cleanup failed | tenant=%s doc_id=%s",
+                        tenant_id,
+                        document_id,
+                        exc_info=True,
+                    )
+                raise IngestionError("Could not save document vectors.") from exc
 
             logger.info(
                 "Ingestion complete | tenant=%s doc_id=%s chunks=%d chars=%d",

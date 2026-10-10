@@ -100,7 +100,7 @@ All application routes are under `/api/v1`. Protected routes require `Authorizat
 | Method | Path | Purpose | Success |
 | --- | --- | --- | --- |
 | GET | `/health` | API and Redis health | `200` |
-| POST | `/api/v1/documents/upload` | Upload and ingest a supported file | `202` |
+| POST | `/api/v1/documents/upload` | Upload and ingest a supported file | `201` |
 | POST | `/api/v1/documents/ingest/text` | Ingest raw text and index chunks | `201` |
 | GET | `/api/v1/documents/list` | List the caller's documents | `200` |
 | DELETE | `/api/v1/documents/{document_id}` | Delete a document from the caller's namespace | `204` |

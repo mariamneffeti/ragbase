@@ -232,15 +232,38 @@ async def list_documents(
 
         return summaries
 
-@router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=None)
+@router.post("/upload", status_code=status.HTTP_201_CREATED, response_model=None)
 async def upload_document(
     file: UploadFile,
     request: Request,
     tenant_id: str = Depends(require_tenant_id),
 ):
-    vector_store = VectorStoreService(tenant_id=tenant_id)
+    rate_limiter = request.app.state.rate_limiter
+    try:
+        await rate_limiter.check_rate_limit(tenant_id, "documents:upload", 20, 60)
+    except RateLimiterError as exc:
+        logger.error("Rate limiter failure during upload for tenant '%s'", tenant_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable.",
+        ) from exc
+
+    try:
+        vector_store = VectorStoreService(tenant_id=tenant_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid tenant context.",
+        ) from exc
     ingestion = DocumentIngestionService(vector_store=vector_store)
-    result = await ingestion.ingest_file(file, document_id=str(uuid.uuid4()))
+    try:
+        result = await ingestion.ingest_file(file, document_id=str(uuid.uuid4()))
+    except IngestionError as exc:
+        logger.error("Upload ingestion failed for tenant '%s'", tenant_id, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document ingestion failed. Please try again later.",
+        ) from exc
     return result
 
 @router.delete("/{document_id}")

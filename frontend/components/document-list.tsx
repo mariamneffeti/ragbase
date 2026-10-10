@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSupabase } from "@/components/providers";
+import { apiUrl } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Document {
@@ -20,7 +21,7 @@ export default function DocumentList() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/documents/list`,
+        apiUrl("documents/list"),
         { headers: { "X-Tenant-ID": tenantId, "Authorization": `Bearer ${session?.access_token}` } }
       );
       if (!res.ok) throw new Error("Failed to fetch documents");
@@ -41,7 +42,7 @@ export default function DocumentList() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/documents/${docId}`,
+        apiUrl(`documents/${docId}`),
         {
           method: "DELETE",
           headers: { "X-Tenant-ID": tenantId, "Authorization": `Bearer ${session?.access_token}` },

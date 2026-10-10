@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useSupabase } from "@/components/providers";
+import { apiUrl } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Message {
@@ -35,7 +36,7 @@ export default function ChatPage() {
     const { data: { session } } = await supabase.auth.getSession();
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/chat/query`,
+        apiUrl("chat/query"),
         {
           method: "POST",
           headers: {

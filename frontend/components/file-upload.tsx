@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSupabase } from "@/components/providers";
+import { apiUrl } from "@/lib/utils";
 import { toast } from "sonner";
 
 export default function FileUpload({ onSuccess }: { onSuccess?: () => void }) {
@@ -20,7 +21,7 @@ export default function FileUpload({ onSuccess }: { onSuccess?: () => void }) {
       const { data: { session } } = await supabase.auth.getSession();
       try {
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/documents/upload`,
+          apiUrl("documents/upload"),
           {
             method: "POST",
             headers: { "X-Tenant-ID": tenantId, "Authorization": `Bearer ${session?.access_token}` },

@@ -23,6 +23,10 @@ async def async_tenant_a():
     return {"sub": "user-a", "tenant_id": "tenant-a"}
 
 
+async def async_tenant_b():
+    return {"sub": "user-b", "tenant_id": "tenant-b"}
+
+
 @pytest.mark.asyncio
 async def test_tenant_a_list_cannot_read_tenant_b_documents(client):
     class TenantScopedStore:
@@ -82,3 +86,43 @@ async def test_query_uses_mocked_vector_store_and_llm(client, mock_pinecone_inde
     assert response.json() == {"answer": "Hello world"}
     store.query_context.assert_called_once()
     app.state.llm_service.generate_rag_response.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_uses_verified_tenant_instead_of_client_header(client, mock_pinecone_index):
+    store = MagicMock()
+    store.embed_query.return_value = [0.1] * 1024
+    store.query_context.return_value = []
+    app.dependency_overrides[get_current_user] = async_tenant_a
+    try:
+        with patch("app.api.v1.chat.VectorStoreService", return_value=store) as factory:
+            response = await client.post(
+                "/api/v1/chat/query",
+                headers={"X-Tenant-ID": "tenant-b"},
+                json={"message": "header must not select a tenant"},
+            )
+    finally:
+        app.dependency_overrides[get_current_user] = async_tenant_a
+
+    assert response.status_code == 200
+    factory.assert_called_once_with(tenant_id="tenant-a")
+
+
+@pytest.mark.asyncio
+async def test_chat_cache_is_separated_by_authenticated_tenant(client, mock_pinecone_index):
+    store = MagicMock()
+    store.embed_query.return_value = [0.1] * 1024
+    store.query_context.return_value = []
+    with patch("app.api.v1.chat.VectorStoreService", return_value=store):
+        app.dependency_overrides[get_current_user] = async_tenant_a
+        first = await client.post(
+            "/api/v1/chat/query", json={"message": "same question"}
+        )
+        app.dependency_overrides[get_current_user] = async_tenant_b
+        second = await client.post(
+            "/api/v1/chat/query", json={"message": "same question"}
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert app.state.llm_service.generate_rag_response.await_count >= 2

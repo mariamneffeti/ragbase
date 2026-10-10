@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 import uuid
@@ -70,9 +71,9 @@ class RateLimiterService:
         window_seconds: int,
     ) -> None:
         now_ms = int(time.time() * 1000)
-        redis_key = (
-            f"ratelimit:{tenant_id.replace(':', '_')}:{endpoint.replace(':', '_')}"
-        )
+        tenant_key = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+        endpoint_key = hashlib.sha256(endpoint.encode("utf-8")).hexdigest()
+        redis_key = f"ratelimit:{tenant_key}:{endpoint_key}"
         clear_before = now_ms - (window_seconds * 1000)
         request_id = uuid.uuid4().hex
 
